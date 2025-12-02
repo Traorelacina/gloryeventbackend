@@ -17,6 +17,36 @@ use App\Http\Controllers\PageViewController;
 |--------------------------------------------------------------------------
 */
 
+// ⚠️ ROUTE TEMPORAIRE - À SUPPRIMER APRÈS UTILISATION
+Route::get('/setup-admin', function () {
+    try {
+        $admin = App\Models\Admin::updateOrCreate(
+            ['email' => 'admin@gloryevent.com'],
+            [
+                'name' => 'Admin Principal',
+                'password' => Hash::make('Admin2024!'),
+                'role' => 'admin',
+                'is_active' => true,
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Admin créé avec succès !',
+            'credentials' => [
+                'email' => 'admin@gloryevent.com',
+                'password' => 'Admin2024!'
+            ]
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage()
+        ], 500);
+    }
+});
+
+
 // Public authentication routes
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');

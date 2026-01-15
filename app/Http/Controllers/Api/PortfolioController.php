@@ -4,12 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Portfolio;
-use App\Models\PortfolioImage; // CET IMPORT EST ESSENTIEL
+use App\Models\PortfolioImage;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class PortfolioController extends Controller
 {
@@ -35,28 +36,28 @@ class PortfolioController extends Controller
     }
 
     /**
- * Get portfolios by category
- */
-public function getByCategory($category): JsonResponse
-{
-    try {
-        $portfolios = Portfolio::with('images')
-            ->where('category', $category)
-            ->orderBy('date', 'desc')
-            ->get();
-        
-        return response()->json([
-            'success' => true,
-            'data' => $portfolios
-        ]);
-    } catch (\Exception $e) {
-        Log::error('Error fetching portfolios by category:', ['error' => $e->getMessage()]);
-        return response()->json([
-            'success' => false,
-            'message' => 'Erreur lors de la récupération du portfolio'
-        ], 500);
+     * Get portfolios by category
+     */
+    public function getByCategory($category): JsonResponse
+    {
+        try {
+            $portfolios = Portfolio::with('images')
+                ->where('category', $category)
+                ->orderBy('date', 'desc')
+                ->get();
+            
+            return response()->json([
+                'success' => true,
+                'data' => $portfolios
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error fetching portfolios by category:', ['error' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la récupération du portfolio'
+            ], 500);
+        }
     }
-}
 
     /**
      * Store a newly created resource in storage.
@@ -85,6 +86,9 @@ public function getByCategory($category): JsonResponse
         }
 
         try {
+            // Nettoyer et formater la date
+            $date = $this->cleanDateInput($request->date);
+            
             // Gérer l'upload de l'image principale
             if ($request->hasFile('image')) {
                 $path = $request->file('image')->store('portfolios', 'public');
@@ -102,7 +106,7 @@ public function getByCategory($category): JsonResponse
                 'description' => $request->description,
                 'category' => $request->category,
                 'featured' => $request->boolean('featured'),
-                'date' => $request->date,
+                'date' => $date, // Date nettoyée
                 'image' => $imagePath,
             ]);
 
@@ -117,7 +121,6 @@ public function getByCategory($category): JsonResponse
                     if ($file && $file->isValid()) {
                         $additionalPath = $file->store('portfolios/additional', 'public');
                         
-                        // Utilisez PortfolioImage directement
                         PortfolioImage::create([
                             'portfolio_id' => $portfolio->id,
                             'image_path' => 'storage/' . $additionalPath,
@@ -153,12 +156,6 @@ public function getByCategory($category): JsonResponse
     }
 
     /**
-     * Display the specified portfolio item.
-     */
-    
-    
-
-    /**
      * Update the specified resource in storage.
      */
     public function update(Request $request, $id): JsonResponse
@@ -192,12 +189,15 @@ public function getByCategory($category): JsonResponse
         try {
             $portfolio = Portfolio::with('images')->findOrFail($id);
 
+            // Nettoyer et formater la date
+            $date = $this->cleanDateInput($request->date);
+
             $data = [
                 'title' => $request->title,
                 'description' => $request->description,
                 'category' => $request->category,
                 'featured' => $request->boolean('featured'),
-                'date' => $request->date,
+                'date' => $date, // Date nettoyée
             ];
 
             // Gérer l'upload de la nouvelle image principale
@@ -240,18 +240,20 @@ public function getByCategory($category): JsonResponse
                 $existingImagesCount = $portfolio->images()->count();
                 
                 foreach ($request->file('additional_images') as $index => $file) {
-                    $additionalPath = $file->store('portfolios/additional', 'public');
-                    
-                    PortfolioImage::create([
-                        'portfolio_id' => $portfolio->id,
-                        'image_path' => 'storage/' . $additionalPath,
-                        'order' => $existingImagesCount + $index,
-                    ]);
+                    if ($file && $file->isValid()) {
+                        $additionalPath = $file->store('portfolios/additional', 'public');
+                        
+                        PortfolioImage::create([
+                            'portfolio_id' => $portfolio->id,
+                            'image_path' => 'storage/' . $additionalPath,
+                            'order' => $existingImagesCount + $index,
+                        ]);
+                    }
                 }
             }
 
             // Recharger les images
-            $portfolio->load('images');
+            $portfolio->refresh()->load('images');
 
             return response()->json([
                 'success' => true,
@@ -259,6 +261,13 @@ public function getByCategory($category): JsonResponse
                 'data' => $portfolio
             ]);
         } catch (\Exception $e) {
+            Log::error('Error updating portfolio:', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de la mise à jour du portfolio: ' . $e->getMessage()
@@ -272,7 +281,7 @@ public function getByCategory($category): JsonResponse
     public function destroy($id): JsonResponse
     {
         try {
-            $portfolio = Portfolio::findOrFail($id);
+            $portfolio = Portfolio::with('images')->findOrFail($id);
             
             // Supprimer l'image principale
             if ($portfolio->image) {
@@ -298,6 +307,7 @@ public function getByCategory($category): JsonResponse
                 'message' => 'Portfolio supprimé avec succès'
             ]);
         } catch (\Exception $e) {
+            Log::error('Error deleting portfolio:', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de la suppression du portfolio: ' . $e->getMessage()
@@ -318,10 +328,30 @@ public function getByCategory($category): JsonResponse
                 'data' => $portfolio
             ]);
         } catch (\Exception $e) {
+            Log::error('Error fetching portfolio:', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Élément du portfolio non trouvé'
             ], 404);
+        }
+    }
+
+    /**
+     * Clean and format date input to Y-m-d format
+     */
+    private function cleanDateInput($dateInput): string
+    {
+        try {
+            // Si la date contient 'T' (format ISO), on la parse
+            if (str_contains($dateInput, 'T')) {
+                return Carbon::parse($dateInput)->format('Y-m-d');
+            }
+            
+            // Sinon, essayer de parser la date
+            return Carbon::parse($dateInput)->format('Y-m-d');
+        } catch (\Exception $e) {
+            Log::warning('Date parsing failed, using current date', ['input' => $dateInput]);
+            return Carbon::now()->format('Y-m-d');
         }
     }
 }

@@ -29,4 +29,11 @@ class Portfolio extends Model
         'anniversaire',
         'evenement_professionnel'
     ];
+
+    
+    // Relation avec les images supplémentaires
+    public function images()
+    {
+        return $this->hasMany(PortfolioImage::class)->orderBy('order');
+    }
 }
